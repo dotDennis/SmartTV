@@ -124,7 +124,6 @@ def handle_command(command):
     '''
     Parse a raw command string and return a response string.
 
-    - Centralized argument-count validation via COMMANDS table.
     - Stateful via a shared SmartTV instance.
     '''
     parts = command.strip().lower().split()

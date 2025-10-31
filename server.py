@@ -49,7 +49,6 @@ def _unregister_client(conn: socket.socket) -> None:
 def broadcast(message: str, exclude: Optional[socket.socket] = None) -> None:
     """
     Send a message to all connected clients except 'exclude'.
-    Non-fatal on individual client failures; removes dead sockets.
     """
     dead: list[socket.socket] = []
     with _clients_lock:
