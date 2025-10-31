@@ -32,6 +32,7 @@ Course: IDATA2304
 """
 
 import socket
+import threading
 from config import DEFAULT_HOST, DEFAULT_PORT
 
 def create_client_socket() -> socket.socket:
@@ -56,14 +57,22 @@ def connect_to_server(sock: socket.socket, host: str, port: int) -> None:
     sock.connect((host,port))
     print('Connected to server')
 
-def receive_data(sock: socket.socket) -> bytes:
+def _receiver(sock: socket.socket) -> None:
     """
-    Receives data from the server (up to 1024 bytes).
-    
-    Returns:
-      Bytes (caller must decode).
+    Background receiver that continuously prints server messages
+    (welcome, command responses, and asynchronous notifications).
     """
-    return sock.recv(1024)
+    try:
+        while True:
+            data = sock.recv(1024)
+            if not data:
+                break
+            msg = data.decode(errors='ignore').strip()
+            if msg:
+                print(msg)
+    except Exception:
+        # Socket likely closed or interrupted; exit quietly
+        pass
 
 def read_send_command(sock: socket.socket) -> None:
     """
@@ -77,8 +86,6 @@ def read_send_command(sock: socket.socket) -> None:
             continue
 
         sock.sendall((command).encode())
-        response=sock.recv(1024).decode(errors='ignore').strip()
-        print(response)
 
         if command.lower() == 'quit':
             break
@@ -106,8 +113,9 @@ def main() -> None:
     sock = create_client_socket()
     try:
         connect_to_server(sock,host,port)
-        response=receive_data(sock)
-        print(response.decode(errors='ignore'))
+        # Start background receiver to handle both responses and notifications
+        recv_thread = threading.Thread(target=_receiver, args=(sock,), daemon=True)
+        recv_thread.start()
         read_send_command(sock)
     except Exception as e:
         print(f'An error occured: {e}\n')

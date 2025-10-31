@@ -10,12 +10,15 @@ Course: IDATA2304
 '''
 
 from config import APP_NAME, APP_VERSION
+import threading
 from logic.tv import SmartTV
 
 # ---------------------------------------------------------------------
 #  Shared TV instance (state persists across requests)
 # ---------------------------------------------------------------------
 tv = SmartTV()
+# Synchronize access to the shared SmartTV instance across threads
+_tv_lock = threading.RLock()
 
 # ---------------------------------------------------------------------
 #  User-facing static texts
@@ -130,16 +133,18 @@ def handle_command(command):
 
     cmd, *args = parts
 
-    # Strict OFF gate: ONLY 'on' is accepted while TV is OFF
-    if not tv.is_on() and cmd != 'on':
-        return TEXT_TV_OFF
+    # All TV interactions are guarded for thread-safety
+    with _tv_lock:
+        # Strict OFF gate: ONLY 'on' is accepted while TV is OFF
+        if not tv.is_on() and cmd != 'on':
+            return TEXT_TV_OFF
 
-    spec = COMMANDS.get(cmd)
-    if spec is None:
-        return TEXT_UNKNOWN.format(cmd=cmd)
+        spec = COMMANDS.get(cmd)
+        if spec is None:
+            return TEXT_UNKNOWN.format(cmd=cmd)
 
-    expected_args, handler = spec
-    if len(args) != expected_args:
-        return err_wrong_args(cmd, expected_args, len(args))
+        expected_args, handler = spec
+        if len(args) != expected_args:
+            return err_wrong_args(cmd, expected_args, len(args))
 
-    return handler(args)
+        return handler(args)

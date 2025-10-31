@@ -10,8 +10,6 @@ It consists of:
 - **Smart TV server** – a TCP server that represents the TV.
 - **Smart Remote client** – a TCP client that connects to the TV and sends commands.
 
-The system currently supports **single-client TCP communication** and is built to be easily extendable and testable.
-
 ---
 
 ## ⚡ Features
@@ -23,7 +21,8 @@ The system currently supports **single-client TCP communication** and is built t
   - `server.py` → networking layer  
   - `client.py` → simple CLI remote
 - ✅ Easily extensible command system (just add to `COMMANDS` table).
-- ✅ Prepared for future **multi-client support** (Part 3).
+- ✅ Multi-client server with per-connection threads (no blocking between remotes).
+- ✅ Asynchronous broadcast: when one remote changes channel, others see a notice immediately.
 - ✅ Unit tests for command parsing and TV logic.
 
 ---
@@ -53,11 +52,11 @@ python3 server.py
 ```
 Default: binds to `127.0.0.1:1238`.
 
-### 2. Start the client
+### 2. Start one or more clients
 ```bash
 python3 client.py
 ```
-Connects to the default host/port defined in `config.py`.
+Connects to the default host/port defined in `config.py`. You can run multiple clients at the same time; when one sends `set_ch <n>`, the others receive a `[Notice] Channel changed to <n>` message automatically.
 
 ---
 
@@ -93,26 +92,15 @@ Tests cover:
 
 ---
 
-## 🔮 Future Work (Part 3)
-- Add **multi-client support** using threads.
-- Push real-time updates to all connected remotes when one changes a channel.
-- Explore switching transport from TCP to UDP if required.
-
----
-
 ## ⚙️ Config
 Edit default host/port or version in [`config.py`](config.py):
 ```python
 APP_NAME = 'SmartTV'
-APP_VERSION = '0.1'
+APP_VERSION = '1.0'
 DEFAULT_HOST = '127.0.0.1'
 DEFAULT_PORT = 1238
 ```
 
 ---
 
-This completes **Part 1 & 2** of the assignment:  s
-- ✅ Working Smart TV TCP server & client  
-- ✅ Clean refactoring with testable logic  
-- ✅ Unit tests for TV state and command parsing  
-- ✅ Easily extendable command architecture
+This completes **Part 1, 2 & 3** of the assignment

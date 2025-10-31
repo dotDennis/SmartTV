@@ -23,8 +23,49 @@ Course: IDATA2304
 """
 
 import socket
+import threading
+from typing import Optional, Tuple
 from config import DEFAULT_HOST, DEFAULT_PORT
 from handler import handle_command
+
+# ---------------------------------------------------------------------
+#  Connected clients registry (thread-safe)
+# ---------------------------------------------------------------------
+_clients: set[socket.socket] = set()
+_clients_lock = threading.RLock()
+
+
+def _register_client(conn: socket.socket) -> None:
+    with _clients_lock:
+        _clients.add(conn)
+
+
+def _unregister_client(conn: socket.socket) -> None:
+    with _clients_lock:
+        if conn in _clients:
+            _clients.remove(conn)
+
+
+def broadcast(message: str, exclude: Optional[socket.socket] = None) -> None:
+    """
+    Send a message to all connected clients except 'exclude'.
+    Non-fatal on individual client failures; removes dead sockets.
+    """
+    dead: list[socket.socket] = []
+    with _clients_lock:
+        for c in list(_clients):
+            if exclude is not None and c is exclude:
+                continue
+            try:
+                c.sendall(message.encode())
+            except Exception:
+                dead.append(c)
+        for d in dead:
+            try:
+                _clients.remove(d)
+                d.close()
+            except Exception:
+                pass
 
 
 def create_socket() -> socket.socket:
@@ -118,6 +159,54 @@ def close_socket(sock: socket.socket) -> None:
     print('Server closed')
 
 
+def handle_client(conn: socket.socket, addr: Tuple[str, int]) -> None:
+    """
+    Per-connection handler running in its own thread.
+    Receives commands, sends responses, and triggers broadcasts on channel changes.
+    """
+    try:
+        print(f'Server connection established with {addr}')
+        conn.sendall(b"Welcome to the Smart TV server. Type 'ON' to begin.\n")
+        while True:
+            command = receive_command(conn)
+            if command is None:
+                break
+            if command.lower() == 'quit':
+                conn.sendall(b'Until next time!\n')
+                break
+
+            response = handle_command(command)
+            if not isinstance(response, str):
+                response = 'ERROR: Internal handler bug (no response)'
+
+            # Send direct response to the requesting client
+            try:
+                conn.sendall(response.encode())
+            except Exception:
+                break
+
+            # If the channel changed successfully, notify other clients asynchronously
+            # We infer success by the handler's success message format.
+            if command.lower().startswith('set_ch') and response.startswith('Channel set to '):
+                try:
+                    new_ch = response.split('Channel set to ', 1)[1]
+                    notice = f"[Notice] Channel changed to {new_ch}\n"
+                    broadcast(notice, exclude=conn)
+                except Exception:
+                    # Best-effort only; ignore formatting errors
+                    pass
+    except Exception as e:
+        print(f'Client handler error for {addr}: {e!r}')
+    finally:
+        try:
+            _unregister_client(conn)
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def main() -> None:
     """
     Main entry point of the Smart TV server.
@@ -136,39 +225,21 @@ def main() -> None:
     host = DEFAULT_HOST
     port = DEFAULT_PORT
     server_socket = create_socket()
-    conn = None
 
     try:
         bind_socket(server_socket, host, port)
         listen_for_connection(server_socket)
-        conn, addr = accept_connection(server_socket)
-        print(f'Server connection established with {addr}')
-        conn.sendall(b'Welcome to the Smart TV server. Type \'ON\' to begin.\n')
-
+        # Main accept loop: serve multiple clients concurrently
         while True:
-            command = receive_command(conn)
-            if command is None:
-                break
-            if command.lower() == 'quit':
-                conn.sendall(b'Until next time!\n')
-                break
-
-            response = handle_command(command)
-
-            if not isinstance(response, str):
-                response = 'ERROR: Internal handler bug (no response)'
-
-            conn.sendall(response.encode())
+            conn, addr = accept_connection(server_socket)
+            _register_client(conn)
+            t = threading.Thread(target=handle_client, args=(conn, addr), daemon=True)
+            t.start()
 
     except Exception as e:
         print(f'Server encountered an error & shut down: {e!r}')
 
     finally:
-        try:
-            if conn:
-                conn.close()
-        except Exception as e:
-            print(f'Error closing connection: {e!r}')
         try:
             close_socket(server_socket)
         except Exception as e:
